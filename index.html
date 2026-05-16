@@ -3,66 +3,269 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebRTC Video Chat</title>
+    <title>Random Stranger Video Chat</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             text-align: center;
-            background: #1e1e1e;
-            color: white;
+            background: #121212;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+        }
+        h2 {
+            margin-bottom: 5px;
+        }
+        #status {
+            color: #aaa;
+            font-style: italic;
+            margin-bottom: 20px;
+            height: 20px;
         }
         .video-container {
             display: flex;
             justify-content: center;
+            flex-wrap: wrap;
             gap: 20px;
-            margin-top: 20px;
+            margin-top: 10px;
+        }
+        .video-box {
+            background: #1e1e1e;
+            padding: 10px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
         video {
-            width: 400px;
-            height: 300px;
-            background: #333;
+            width: 45vw;
+            max-width: 500px;
+            height: 350px;
+            background: #000;
             border-radius: 8px;
             object-fit: cover;
         }
         .controls {
-            margin-top: 20px;
+            margin-top: 25px;
         }
         button {
-            padding: 10px 15px;
-            margin: 5px;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            border: none;
+            border-radius: 6px;
             cursor: pointer;
+            transition: background 0.2s;
+            margin: 5px;
         }
-        input {
-            padding: 10px;
-            width: 250px;
+        #startBtn { background: #4CAF50; color: white; }
+        #startBtn:hover { background: #45a049; }
+        #nextBtn { background: #008CBA; color: white; }
+        #nextBtn:hover { background: #007bb5; }
+        button:disabled {
+            background: #444 !important;
+            color: #888;
+            cursor: not-allowed;
         }
     </style>
 </head>
 <body>
-    <h2>WebRTC Video Chat via Firestore</h2>
+
+    <h2>Stranger Video Chat</h2>
+    <div id="status">Click "Start Webcam" to begin</div>
 
     <div class="video-container">
-        <div>
-            <h3>Local Stream</h3>
+        <div class="video-box">
+            <h3>You</h3>
             <video id="localVideo" autoplay playsinline muted></video>
         </div>
-        <div>
-            <h3>Remote Stream</h3>
+        <div class="video-box">
+            <h3>Stranger</h3>
             <video id="remoteVideo" autoplay playsinline></video>
         </div>
     </div>
 
     <div class="controls">
-        <button id="webcamBtn">1. Start Webcam</button>
-        <button id="createBtn" disabled>2. Create Call (Offer)</button>
-        <input id="callInput" type="text" placeholder="Paste Call ID here...">
-        <button id="joinBtn" disabled>3. Join Call (Answer)</button>
+        <button id="startBtn">1. Start Webcam</button>
+        <button id="nextBtn" disabled>2. Find Stranger</button>
     </div>
 
     <!-- Firebase SDKs -->
     <script src="https://gstatic.com"></script>
     <script src="https://gstatic.com"></script>
-    <!-- Main Logic -->
-    <script src="app.js"></script>
+
+    <script>
+        // 1. TODO: Paste your actual Firebase project configuration here!
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_AUTH_DOMAIN",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_STORAGE_BUCKET",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // Global Signaling Config
+        const servers = {
+            iceServers: [{ urls: ['stun:://google.com', 'stun:://google.com'] }],
+            iceCandidatePoolSize: 10,
+        };
+
+        let pc = null;
+        let localStream = null;
+        let remoteStream = null;
+        let currentRoomRef = null;
+        let roomListener = null;
+        let candidateListener = null;
+
+        const startBtn = document.getElementById('startBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const localVideo = document.getElementById('localVideo');
+        const remoteVideo = document.getElementById('remoteVideo');
+        const statusText = document.getElementById('status');
+
+        // Request camera access
+        startBtn.onclick = async () => {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localVideo.srcObject = localStream;
+                
+                statusText.innerText = "Webcam ready. Click 'Find Stranger' to connect!";
+                nextBtn.disabled = false;
+                startBtn.disabled = true;
+            } catch (e) {
+                statusText.innerText = "Error accessing camera/microphone.";
+                console.error(e);
+            }
+        };
+
+        // Matchmaking Logic: Find or Create a Call Room
+        nextBtn.onclick = async () => {
+            nextBtn.disabled = true;
+            statusText.innerText = "Searching for a stranger...";
+            
+            // Clean up previous call if it exists
+            await endCurrentCall();
+
+            // Setup fresh WebRTC instance
+            pc = new RTCPeerConnection(servers);
+            remoteStream = new MediaStream();
+
+            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+            pc.ontrack = event => event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
+            remoteVideo.srcObject = remoteStream;
+
+            // Search for an active room where a stranger is waiting alone
+            const availableRooms = await db.collection('rooms')
+                .where('status', '==', 'waiting')
+                .limit(1)
+                .get();
+
+            if (!availableRooms.empty) {
+                // Someone is waiting! Join their room
+                const roomDoc = availableRooms.docs[0];
+                currentRoomRef = roomDoc.ref;
+                statusText.innerText = "Connecting to stranger...";
+                await joinRoom(roomDoc.data());
+            } else {
+                // No one is waiting. Create a new room and wait
+                statusText.innerText = "Waiting for a stranger to join you...";
+                await createRoom();
+            }
+        };
+
+        // Client A: Creates the room and waits
+        async function createRoom() {
+            currentRoomRef = db.collection('rooms').doc();
+            const offerCandidates = currentRoomRef.collection('offerCandidates');
+            const answerCandidates = currentRoomRef.collection('answerCandidates');
+
+            pc.onicecandidate = event => {
+                if (event.candidate) offerCandidates.add(event.candidate.toJSON());
+            };
+
+            const offerDescription = await pc.createOffer();
+            await pc.setLocalDescription(offerDescription);
+
+            await currentRoomRef.set({
+                status: 'waiting',
+                offer: { sdp: offerDescription.sdp, type: offerDescription.type }
+            });
+
+            // Listen for Stranger to join and provide an answer
+            roomListener = currentRoomRef.onSnapshot(snapshot => {
+                const data = snapshot.data();
+                if (!pc.currentRemoteDescription && data?.answer) {
+                    statusText.innerText = "Stranger connected!";
+                    nextBtn.disabled = false;
+                    pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+                }
+            });
+
+            // Listen for stranger's network configurations
+            candidateListener = answerCandidates.onSnapshot(snapshot => {
+                snapshot.docChanges().forEach(change => {
+                    if (change.type === 'added') {
+                        pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+                    }
+                });
+            });
+        }
+
+        // Client B: Joins an existing room found during matchmaking
+        async function joinRoom(roomData) {
+            const answerCandidates = currentRoomRef.collection('answerCandidates');
+            const offerCandidates = currentRoomRef.collection('offerCandidates');
+
+            pc.onicecandidate = event => {
+                if (event.candidate) answerCandidates.add(event.candidate.toJSON());
+            };
+
+            // Update status immediately so no one else steals this room
+            await currentRoomRef.update({ status: 'connected' });
+
+            await pc.setRemoteDescription(new RTCSessionDescription(roomData.offer));
+            const answerDescription = await pc.createAnswer();
+            await pc.setLocalDescription(answerDescription);
+
+            await currentRoomRef.update({
+                answer: { sdp: answerDescription.sdp, type: answerDescription.type }
+            });
+
+            statusText.innerText = "Stranger connected!";
+            nextBtn.disabled = false;
+
+            candidateListener = offerCandidates.onSnapshot(snapshot => {
+                snapshot.docChanges().forEach(change => {
+                    if (change.type === 'added') {
+                        pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+                    }
+                });
+            });
+        }
+
+        // Clean up connections and clear database documents
+        async function endCurrentCall() {
+            if (roomListener) roomListener();
+            if (candidateListener) candidateListener();
+            if (pc) pc.close();
+
+            if (currentRoomRef) {
+                // Delete the temporary room documents to keep database tidy
+                const room = currentRoomRef;
+                currentRoomRef = null;
+                
+                try {
+                    await room.delete();
+                } catch(e) { console.log("Room already deleted by other peer.") }
+            }
+            remoteVideo.srcObject = null;
+        }
+
+        // Wipe database room footprint if the window closes unexpectedly
+        window.onbeforeunload = () => { endCurrentCall(); };
+    </script>
 </body>
 </html>
