@@ -70,7 +70,7 @@
 <body>
 
     <h2>Stranger Video Chat</h2>
-    <div id="status">Click "Start Webcam" to begin</div>
+    <div id="status">Click "1. Start Webcam" to begin</div>
 
     <div class="video-container">
         <div class="video-box">
@@ -106,13 +106,10 @@
         // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
 
-        // Targeted Database: speechcenter
-        const db = firebase.app().firestore("speechcenter");
-        
-        // Ensure experimental settings for better connectivity
-        db.settings({ host: "firestore.googleapis.com", ssl: true });
+        // FIXED: Using default firestore instance
+        const db = firebase.firestore();
 
-        // Anonymous Auth
+        // Anonymous Auth - Make sure this is enabled in Firebase Console > Authentication
         firebase.auth().signInAnonymously().catch((error) => {
             console.error("Auth failed: ", error);
         });
@@ -178,8 +175,8 @@
                     await createRoom();
                 }
             } catch (err) {
-                statusText.innerText = "Database connection error.";
-                console.error(err);
+                statusText.innerText = "Connection error. Check Console.";
+                console.error("Firestore Error: ", err);
                 nextBtn.disabled = false;
             }
         };
@@ -252,7 +249,10 @@
         async function endCurrentCall() {
             if (roomListener) roomListener();
             if (candidateListener) candidateListener();
-            if (pc) pc.close();
+            if (pc) {
+                pc.close();
+                pc = null;
+            }
             if (currentRoomRef) {
                 const room = currentRoomRef;
                 currentRoomRef = null;
