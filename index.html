@@ -88,28 +88,37 @@
         <button id="nextBtn" disabled>2. Find Stranger</button>
     </div>
 
-    <!-- Firebase SDKs -->
+    <!-- Corrected Firebase SDKs -->
+    <script src="https://gstatic.com"></script>
     <script src="https://gstatic.com"></script>
     <script src="https://gstatic.com"></script>
 
     <script>
-        // 1. TODO: Paste your actual Firebase project configuration here!
+        // Loaded your personal SpeechCenter configuration keys
         const firebaseConfig = {
-            apiKey: "YOUR_API_KEY",
-            authDomain: "YOUR_AUTH_DOMAIN",
-            projectId: "YOUR_PROJECT_ID",
-            storageBucket: "YOUR_STORAGE_BUCKET",
-            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-            appId: "YOUR_APP_ID"
+          apiKey: "AIzaSyAX9fQ-K0fr4qStsindjTaJB-GgqsFRBao",
+          authDomain: "speechcenter-782d8.firebaseapp.com",
+          projectId: "speechcenter-782d8",
+          storageBucket: "speechcenter-782d8.firebasestorage.app",
+          messagingSenderId: "206538066727",
+          appId: "1:206538066727:web:6ffd67acfd46c233a33702",
+          measurementId: "G-LXE9LMDC90"
         };
 
-        // Initialize Firebase
+        // Initialize Firebase services
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
-        // Global Signaling Config
+        // Silent background authentication layer required for open Firestore queries
+        firebase.auth().signInAnonymously().catch((error) => {
+            console.error("Anonymous authentication layer failed: ", error);
+        });
+
+        // Fixed Global STUN Routing Servers (WebRTC Handshaking paths)
         const servers = {
-            iceServers: [{ urls: ['stun:://google.com', 'stun:://google.com'] }],
+            iceServers: [
+                { urls: ['stun:://google.com', 'stun:://google.com'] }
+            ],
             iceCandidatePoolSize: 10,
         };
 
@@ -126,7 +135,7 @@
         const remoteVideo = document.getElementById('remoteVideo');
         const statusText = document.getElementById('status');
 
-        // Request camera access
+        // Request local user camera access
         startBtn.onclick = async () => {
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -141,15 +150,13 @@
             }
         };
 
-        // Matchmaking Logic: Find or Create a Call Room
+        // Matchmaking System
         nextBtn.onclick = async () => {
             nextBtn.disabled = true;
             statusText.innerText = "Searching for a stranger...";
             
-            // Clean up previous call if it exists
             await endCurrentCall();
 
-            // Setup fresh WebRTC instance
             pc = new RTCPeerConnection(servers);
             remoteStream = new MediaStream();
 
@@ -157,26 +164,23 @@
             pc.ontrack = event => event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
             remoteVideo.srcObject = remoteStream;
 
-            // Search for an active room where a stranger is waiting alone
             const availableRooms = await db.collection('rooms')
                 .where('status', '==', 'waiting')
                 .limit(1)
                 .get();
 
             if (!availableRooms.empty) {
-                // Someone is waiting! Join their room
                 const roomDoc = availableRooms.docs[0];
                 currentRoomRef = roomDoc.ref;
                 statusText.innerText = "Connecting to stranger...";
                 await joinRoom(roomDoc.data());
             } else {
-                // No one is waiting. Create a new room and wait
                 statusText.innerText = "Waiting for a stranger to join you...";
                 await createRoom();
             }
         };
 
-        // Client A: Creates the room and waits
+        // Client Host Room setup
         async function createRoom() {
             currentRoomRef = db.collection('rooms').doc();
             const offerCandidates = currentRoomRef.collection('offerCandidates');
@@ -194,7 +198,6 @@
                 offer: { sdp: offerDescription.sdp, type: offerDescription.type }
             });
 
-            // Listen for Stranger to join and provide an answer
             roomListener = currentRoomRef.onSnapshot(snapshot => {
                 const data = snapshot.data();
                 if (!pc.currentRemoteDescription && data?.answer) {
@@ -204,7 +207,6 @@
                 }
             });
 
-            // Listen for stranger's network configurations
             candidateListener = answerCandidates.onSnapshot(snapshot => {
                 snapshot.docChanges().forEach(change => {
                     if (change.type === 'added') {
@@ -214,7 +216,7 @@
             });
         }
 
-        // Client B: Joins an existing room found during matchmaking
+        // Client Joining Room matching
         async function joinRoom(roomData) {
             const answerCandidates = currentRoomRef.collection('answerCandidates');
             const offerCandidates = currentRoomRef.collection('offerCandidates');
@@ -223,7 +225,6 @@
                 if (event.candidate) answerCandidates.add(event.candidate.toJSON());
             };
 
-            // Update status immediately so no one else steals this room
             await currentRoomRef.update({ status: 'connected' });
 
             await pc.setRemoteDescription(new RTCSessionDescription(roomData.offer));
@@ -246,25 +247,22 @@
             });
         }
 
-        // Clean up connections and clear database documents
+        // Disconnection logic
         async function endCurrentCall() {
             if (roomListener) roomListener();
             if (candidateListener) candidateListener();
             if (pc) pc.close();
 
             if (currentRoomRef) {
-                // Delete the temporary room documents to keep database tidy
                 const room = currentRoomRef;
                 currentRoomRef = null;
-                
                 try {
                     await room.delete();
-                } catch(e) { console.log("Room already deleted by other peer.") }
+                } catch(e) { console.log("Room closed.") }
             }
             remoteVideo.srcObject = null;
         }
 
-        // Wipe database room footprint if the window closes unexpectedly
         window.onbeforeunload = () => { endCurrentCall(); };
     </script>
 </body>
