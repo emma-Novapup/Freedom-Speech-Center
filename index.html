@@ -88,24 +88,24 @@
         <button id="nextBtn" disabled>2. Find Stranger</button>
     </div>
 
-    <!-- Corrected Firebase SDKs -->
-    <script src="https://gstatic.com"></script>
-    <script src="https://gstatic.com"></script>
-    <script src="https://gstatic.com"></script>
+    <!-- Firebase SDK Dependencies (v8 Compatibility Layer) -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 
     <script>
-        // Your SpeechCenter config keys
+        // Assigned SpeechCenter Production Project Keys
         const firebaseConfig = {
-          apiKey: "AIzaSyAX9fQ-K0fr4qStsindjTaJB-GgqsFRBao",
-          authDomain: "speechcenter-782d8.firebaseapp.com",
-          projectId: "speechcenter-782d8",
-          storageBucket: "speechcenter-782d8.firebasestorage.app",
-          messagingSenderId: "206538066727",
-          appId: "1:206538066727:web:6ffd67acfd46c233a33702",
-          measurementId: "G-LXE9LMDC90"
+            apiKey: "AIzaSyAX9fQ-K0fr4qStsindjTaJB-GgqsFRBao",
+            authDomain: "speechcenter-782d8.firebaseapp.com",
+            projectId: "speechcenter-782d8",
+            storageBucket: "speechcenter-782d8.firebasestorage.app",
+            messagingSenderId: "206538066727",
+            appId: "1:206538066727:web:6ffd67acfd46c233a33702",
+            measurementId: "G-LXE9LMDC90"
         };
 
-        // Initialize Firebase services
+        // Initialize Firebase instances
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
@@ -117,7 +117,7 @@
         // Fixed Global WebRTC Routing Server Paths
         const servers = {
             iceServers: [
-                { urls: ['stun:://google.com', 'stun:://google.com'] }
+                { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }
             ],
             iceCandidatePoolSize: 10,
         };
