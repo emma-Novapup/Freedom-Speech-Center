@@ -88,13 +88,11 @@
         <button id="nextBtn" disabled>2. Find Stranger</button>
     </div>
 
-    <!-- Firebase SDK Dependencies (v8 Compatibility Layer) -->
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 
     <script>
-        // Assigned SpeechCenter Production Project Keys
         const firebaseConfig = {
             apiKey: "AIzaSyAX9fQ-K0fr4qStsindjTaJB-GgqsFRBao",
             authDomain: "speechcenter-782d8.firebaseapp.com",
@@ -105,16 +103,20 @@
             measurementId: "G-LXE9LMDC90"
         };
 
-        // Initialize Firebase instances
+        // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
 
-        // Anonymous auth wrapper to permit read/write streams
+        // Targeted Database: speechcenter
+        const db = firebase.app().firestore("speechcenter");
+        
+        // Ensure experimental settings for better connectivity
+        db.settings({ host: "firestore.googleapis.com", ssl: true });
+
+        // Anonymous Auth
         firebase.auth().signInAnonymously().catch((error) => {
-            console.error("Anonymous authentication layer failed: ", error);
+            console.error("Auth failed: ", error);
         });
 
-        // Fixed Global WebRTC Routing Server Paths
         const servers = {
             iceServers: [
                 { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }
@@ -135,26 +137,22 @@
         const remoteVideo = document.getElementById('remoteVideo');
         const statusText = document.getElementById('status');
 
-        // Request local user camera access
         startBtn.onclick = async () => {
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 localVideo.srcObject = localStream;
-                
                 statusText.innerText = "Webcam ready. Click 'Find Stranger' to connect!";
                 nextBtn.disabled = false;
                 startBtn.disabled = true;
             } catch (e) {
-                statusText.innerText = "Error accessing camera/microphone.";
+                statusText.innerText = "Error accessing camera.";
                 console.error(e);
             }
         };
 
-        // Matchmaking System
         nextBtn.onclick = async () => {
             nextBtn.disabled = true;
             statusText.innerText = "Searching for a stranger...";
-            
             await endCurrentCall();
 
             pc = new RTCPeerConnection(servers);
@@ -164,23 +162,28 @@
             pc.ontrack = event => event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
             remoteVideo.srcObject = remoteStream;
 
-            const availableRooms = await db.collection('rooms')
-                .where('status', '==', 'waiting')
-                .limit(1)
-                .get();
+            try {
+                const availableRooms = await db.collection('rooms')
+                    .where('status', '==', 'waiting')
+                    .limit(1)
+                    .get();
 
-            if (!availableRooms.empty) {
-                const roomDoc = availableRooms.docs[0];
-                currentRoomRef = roomDoc.ref;
-                statusText.innerText = "Connecting to stranger...";
-                await joinRoom(roomDoc.data());
-            } else {
-                statusText.innerText = "Waiting for a stranger to join you...";
-                await createRoom();
+                if (!availableRooms.empty) {
+                    const roomDoc = availableRooms.docs[0];
+                    currentRoomRef = roomDoc.ref;
+                    statusText.innerText = "Connecting to stranger...";
+                    await joinRoom(roomDoc.data());
+                } else {
+                    statusText.innerText = "Waiting for a stranger to join you...";
+                    await createRoom();
+                }
+            } catch (err) {
+                statusText.innerText = "Database connection error.";
+                console.error(err);
+                nextBtn.disabled = false;
             }
         };
 
-        // Client Host Room setup
         async function createRoom() {
             currentRoomRef = db.collection('rooms').doc();
             const offerCandidates = currentRoomRef.collection('offerCandidates');
@@ -216,7 +219,6 @@
             });
         }
 
-        // Client Joining Room matching
         async function joinRoom(roomData) {
             const answerCandidates = currentRoomRef.collection('answerCandidates');
             const offerCandidates = currentRoomRef.collection('offerCandidates');
@@ -247,18 +249,14 @@
             });
         }
 
-        // Disconnection logic
         async function endCurrentCall() {
             if (roomListener) roomListener();
             if (candidateListener) candidateListener();
             if (pc) pc.close();
-
             if (currentRoomRef) {
                 const room = currentRoomRef;
                 currentRoomRef = null;
-                try {
-                    await room.delete();
-                } catch(e) { console.log("Room closed.") }
+                try { await room.delete(); } catch(e) {}
             }
             remoteVideo.srcObject = null;
         }
