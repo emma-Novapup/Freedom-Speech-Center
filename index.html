@@ -88,32 +88,7 @@
         <button id="nextBtn" disabled>2. Find Stranger</button>
     </div>
 
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
-
     <script>
-        const firebaseConfig = {
-            apiKey: "AIzaSyAX9fQ-K0fr4qStsindjTaJB-GgqsFRBao",
-            authDomain: "speechcenter-782d8.firebaseapp.com",
-            projectId: "speechcenter-782d8",
-            storageBucket: "speechcenter-782d8.firebasestorage.app",
-            messagingSenderId: "206538066727",
-            appId: "1:206538066727:web:6ffd67acfd46c233a33702",
-            measurementId: "G-LXE9LMDC90"
-        };
-
-        // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
-
-        // FIXED: Using default firestore instance
-        const db = firebase.firestore();
-
-        // Anonymous Auth - Make sure this is enabled in Firebase Console > Authentication
-        firebase.auth().signInAnonymously().catch((error) => {
-            console.error("Auth failed: ", error);
-        });
-
         const servers = {
             iceServers: [
                 { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }
@@ -124,9 +99,6 @@
         let pc = null;
         let localStream = null;
         let remoteStream = null;
-        let currentRoomRef = null;
-        let roomListener = null;
-        let candidateListener = null;
 
         const startBtn = document.getElementById('startBtn');
         const nextBtn = document.getElementById('nextBtn');
@@ -160,103 +132,34 @@
             remoteVideo.srcObject = remoteStream;
 
             try {
-                const availableRooms = await db.collection('rooms')
-                    .where('status', '==', 'waiting')
-                    .limit(1)
-                    .get();
-
-                if (!availableRooms.empty) {
-                    const roomDoc = availableRooms.docs[0];
-                    currentRoomRef = roomDoc.ref;
-                    statusText.innerText = "Connecting to stranger...";
-                    await joinRoom(roomDoc.data());
-                } else {
-                    statusText.innerText = "Waiting for a stranger to join you...";
-                    await createRoom();
-                }
+                // TODO: Replace with your custom signaling server logic to find/create a room
+                statusText.innerText = "Connecting to stranger...";
+                await initiateSignaling();
             } catch (err) {
                 statusText.innerText = "Connection error. Check Console.";
-                console.error("Firestore Error: ", err);
+                console.error("Signaling Error: ", err);
                 nextBtn.disabled = false;
             }
         };
 
-        async function createRoom() {
-            currentRoomRef = db.collection('rooms').doc();
-            const offerCandidates = currentRoomRef.collection('offerCandidates');
-            const answerCandidates = currentRoomRef.collection('answerCandidates');
-
+        async function initiateSignaling() {
+            // Placeholder: Wire your WebSockets/Socket.io signaling mechanics here
             pc.onicecandidate = event => {
-                if (event.candidate) offerCandidates.add(event.candidate.toJSON());
-            };
-
-            const offerDescription = await pc.createOffer();
-            await pc.setLocalDescription(offerDescription);
-
-            await currentRoomRef.set({
-                status: 'waiting',
-                offer: { sdp: offerDescription.sdp, type: offerDescription.type }
-            });
-
-            roomListener = currentRoomRef.onSnapshot(snapshot => {
-                const data = snapshot.data();
-                if (!pc.currentRemoteDescription && data?.answer) {
-                    statusText.innerText = "Stranger connected!";
-                    nextBtn.disabled = false;
-                    pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+                if (event.candidate) {
+                    // sendSignalingData({ type: 'candidate', candidate: event.candidate.toJSON() });
                 }
-            });
-
-            candidateListener = answerCandidates.onSnapshot(snapshot => {
-                snapshot.docChanges().forEach(change => {
-                    if (change.type === 'added') {
-                        pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
-                    }
-                });
-            });
-        }
-
-        async function joinRoom(roomData) {
-            const answerCandidates = currentRoomRef.collection('answerCandidates');
-            const offerCandidates = currentRoomRef.collection('offerCandidates');
-
-            pc.onicecandidate = event => {
-                if (event.candidate) answerCandidates.add(event.candidate.toJSON());
             };
 
-            await currentRoomRef.update({ status: 'connected' });
-
-            await pc.setRemoteDescription(new RTCSessionDescription(roomData.offer));
-            const answerDescription = await pc.createAnswer();
-            await pc.setLocalDescription(answerDescription);
-
-            await currentRoomRef.update({
-                answer: { sdp: answerDescription.sdp, type: answerDescription.type }
-            });
-
-            statusText.innerText = "Stranger connected!";
-            nextBtn.disabled = false;
-
-            candidateListener = offerCandidates.onSnapshot(snapshot => {
-                snapshot.docChanges().forEach(change => {
-                    if (change.type === 'added') {
-                        pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
-                    }
-                });
-            });
+            // Example workflow logic:
+            // 1. Check your backend if a room is waiting.
+            // 2. If YES: Join room, handle offer, create answer, send answer back.
+            // 3. If NO: Create room, create offer, set local description, send offer to backend.
         }
 
         async function endCurrentCall() {
-            if (roomListener) roomListener();
-            if (candidateListener) candidateListener();
             if (pc) {
                 pc.close();
                 pc = null;
-            }
-            if (currentRoomRef) {
-                const room = currentRoomRef;
-                currentRoomRef = null;
-                try { await room.delete(); } catch(e) {}
             }
             remoteVideo.srcObject = null;
         }
